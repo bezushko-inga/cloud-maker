@@ -1,3 +1,7 @@
-*.qcow2
+.venv/
+__pycache__/
+*.pyc
 *.img
+*.qcow2
 *.iso
+*.tmp

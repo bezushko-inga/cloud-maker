@@ -236,7 +236,6 @@ def test_minimum_resources(api, vm_name):
 
 
 # ТЕСТ 12: создание ВМ с максимальными допустимыми ресурсами
-@pytest.mark.slow
 def test_maximum_resources(api, vm_name):
     try:
         response = create_virtual_machine(
@@ -321,7 +320,6 @@ def test_vm_lifecycle(api, created_virtual_machine):
 
 
 # ТЕСТ 20: ограничение количества виртуальных машин
-@pytest.mark.slow
 def test_vm_count_limit(api):
     names = [f"pytest-limit-{uuid.uuid4().hex[:8]}" for _ in range(VMS_LIMIT + 1)]
 
@@ -347,7 +345,6 @@ def test_vm_count_limit(api):
 
 
 # ТЕСТ 21: ограничение общего объёма памяти
-@pytest.mark.slow
 def test_total_memory_limit(api):
     names = [f"pytest-memory-{uuid.uuid4().hex[:8]}" for _ in range(3)]
 
@@ -371,7 +368,6 @@ def test_total_memory_limit(api):
 
 
 # ТЕСТ 22: ограничение общего количества vCPU
-@pytest.mark.slow
 def test_total_vcpus_limit(api):
     names = [f"pytest-cpu-{uuid.uuid4().hex[:8]}" for _ in range(3)]
 

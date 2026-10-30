@@ -6,8 +6,8 @@ MEMORY=2048
 VCPUS=2
 DISK_SIZE="10G"
 
-PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-trap 'rm -f "$PROJECT_DIR/seed.iso"' EXIT
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+trap 'rm -f "$PROJECT_DIR/seed.iso" "${BASE_IMAGE}.tmp"' EXIT
 
 BASE_IMAGE="$PROJECT_DIR/noble-server-cloudimg-amd64.img"
 VM_DISK="/var/lib/libvirt/images/${VM_NAME}.qcow2"
@@ -59,5 +59,6 @@ sudo virt-install \
     --graphics none \
     --console pty,target_type=serial \
     --noautoconsole
+
 
 echo "VM $VM_NAME created successfully"

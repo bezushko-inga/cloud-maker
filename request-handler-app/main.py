@@ -4,6 +4,7 @@ from pydantic import BaseModel
 import subprocess
 import libvirt
 import tempfile
+import yaml
 
 VMS_LIMIT = 5
 MEMORY_LIMIT = 4096
@@ -18,6 +19,9 @@ class VirtualMachine(BaseModel):
     name: str
     memory: int = 2048
     vcpus: int = 2
+    hostname: str | None = None
+    ssh_key: str | None = None
+    user_data: str | None = None
 
 
 @app.get("/vms")
@@ -115,16 +119,38 @@ def create_virtual_machine(vm: VirtualMachine):
 
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            meta = tmp / "meta-data"
-            iso = tmp / "seed.iso"
 
-            meta.write_text(f"instance-id: {vm.name}\nlocal-hostname: {vm.name}\n")
+            meta = tmp / "meta-data"
+            user = tmp / "user_data"
+            iso = tmp / "seed.iso"
+            hostname = vm.hostname or vm.name
+
+            meta.write_text(f"instance-id: {vm.name}\nlocal-hostname: {hostname}\n")
+
+            if vm.user_data:
+                config = yaml.safe_load(vm.user_data.removeprefix("#cloud-config"))
+            else:
+                default_data = (project_dir / "cloud-init/user-data").read_text()
+                config = yaml.safe_load(default_data.removeprefix("#cloud-config"))
+
+            if config is None:
+                config = {}
+
+            if not isinstance(config, dict):
+                raise HTTPException(
+                    status_code=400, detail="Invalid cloud-init configuration"
+                )
+
+            config["hostname"] = hostname
+            if vm.ssh_key:
+                config["ssh_authorized_keys"] = [vm.ssh_key]
+            user.write_text("#cloud-config\n" + yaml.safe_dump(config))
 
             subprocess.run(
                 [
                     "cloud-localds",
                     str(iso),
-                    str(project_dir / "cloud-init/user-data"),
+                    str(user),
                     str(meta),
                 ],
                 check=True,

@@ -1,11 +1,13 @@
 from fastapi import FastAPI, HTTPException
 from pathlib import Path
 from pydantic import BaseModel
-import subprocess
 import libvirt
+import subprocess
+import time
 import tempfile
 import yaml
 import json
+import xml.etree.ElementTree as ET
 
 VMS_LIMIT = 5
 MEMORY_LIMIT = 4096
@@ -97,6 +99,113 @@ def get_virtual_machines():
                 vms.append({"name": domain.name(), "state": "stopped"})
 
         return vms
+
+    finally:
+        connection.close()
+
+
+@app.get("/vms/{name}/stats")
+def get_virtual_machine_stats(name: str):
+    try:
+        connection = libvirt.open("qemu:///system")
+    except libvirt.libvirtError:
+        raise HTTPException(status_code=503, detail="Failed to connect to libvirt")
+
+    if connection is None:
+        raise HTTPException(status_code=503, detail="Failed to connect to libvirt")
+
+    try:
+        try:
+            domain = connection.lookupByName(name)
+        except libvirt.libvirtError as e:
+            if e.get_error_code() == libvirt.VIR_ERR_NO_DOMAIN:
+                raise HTTPException(status_code=404, detail="Virtual machine not found")
+            raise
+
+        if not domain.isActive():
+            return {
+                "name": name,
+                "state": "stopped",
+                "memory_mb": domain.maxMemory() // 1024,
+                "vcpus": domain.maxVcpus(),
+                "cpu_usage_percent": 0,
+                "disk": None,
+                "network": None,
+            }
+
+        _, memory, memory_used, vcpus, cpu_time = domain.info()
+
+        start_cpu_time = cpu_time
+        start_time = time.monotonic()
+        time.sleep(1)
+        end_cpu_time = domain.info()[4]
+        elapsed = time.monotonic() - start_time
+
+        cpu_usage = (
+            (end_cpu_time - start_cpu_time) / (elapsed * 1_000_000_000 * vcpus) * 100
+        )
+        cpu_usage = max(0, min(cpu_usage, 100))
+
+        xml = ET.fromstring(domain.XMLDesc())
+
+        disks = {}
+
+        for disk in xml.findall("./devices/disk"):
+
+            target = disk.find("target")
+            if target is None:
+                continue
+
+            device = target.get("dev")
+            if not device:
+                continue
+
+            try:
+                stats = domain.blockStats(device)
+                disks[device] = {
+                    "read_requests": stats[0],
+                    "read_bytes": stats[1],
+                    "write_requests": stats[2],
+                    "write_bytes": stats[3],
+                }
+
+            except libvirt.libvirtError:
+                continue
+
+        networks = {}
+
+        for interface in xml.findall("./devices/interface"):
+
+            target = interface.find("target")
+            if target is None:
+                continue
+
+            device = target.get("dev")
+            if not device:
+                continue
+
+            try:
+                stats = domain.interfaceStats(device)
+                networks[device] = {
+                    "received_bytes": stats[0],
+                    "received_packets": stats[1],
+                    "transmitted_bytes": stats[4],
+                    "transmitted_packets": stats[5],
+                }
+            except libvirt.libvirtError:
+                continue
+
+        return {
+            "name": name,
+            "state": "running",
+            "memory_mb": memory // 1024,
+            "memory_used_mb": memory_used // 1024,
+            "vcpus": vcpus,
+            "cpu_time_ns": end_cpu_time,
+            "cpu_usage_percent": round(cpu_usage, 2),
+            "disk": disks,
+            "network": networks,
+        }
 
     finally:
         connection.close()

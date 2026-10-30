@@ -5,6 +5,12 @@ import subprocess
 import libvirt
 import tempfile
 
+VMS_LIMIT = 5
+MEMORY_LIMIT = 4096
+VCPUS_LIMIT = 4
+TOTAL_MEMORY_LIMIT = 8192
+TOTAL_VCPUS_LIMIT = 8
+
 app = FastAPI()
 
 
@@ -52,10 +58,11 @@ def create_virtual_machine(vm: VirtualMachine):
         if not vm.name or not all(c.isalnum() or c in "-_" for c in vm.name):
             raise HTTPException(status_code=400, detail="Invalid virtual machine name")
 
-        if not 512 <= vm.memory <= 8192 or not 1 <= vm.vcpus <= 8:
-            raise HTTPException(
-                status_code=400, detail="Invalid virtual machine resources"
-            )
+        if not 512 <= vm.memory <= MEMORY_LIMIT:
+            raise HTTPException(status_code=400, detail="Memory limit exceeded")
+
+        if not 1 <= vm.vcpus <= VCPUS_LIMIT:
+            raise HTTPException(status_code=400, detail="VCPU limit exceeded")
 
         try:
             connection.lookupByName(vm.name)
@@ -66,6 +73,26 @@ def create_virtual_machine(vm: VirtualMachine):
             raise HTTPException(
                 status_code=409, detail="Virtual machine already exists"
             )
+
+        domains = connection.listAllDomains()
+
+        if len(domains) >= VMS_LIMIT:
+            raise HTTPException(
+                status_code=409, detail="Virtual machine limit exceeded"
+            )
+
+        total_memory = 0
+        total_vcpus = 0
+
+        for domain in domains:
+            total_memory += domain.maxMemory() // 1024
+            total_vcpus += domain.maxVcpus()
+
+        if total_memory + vm.memory > TOTAL_MEMORY_LIMIT:
+            raise HTTPException(status_code=409, detail="Total memory limit exceeded")
+
+        if total_vcpus + vm.vcpus > TOTAL_VCPUS_LIMIT:
+            raise HTTPException(status_code=409, detail="Total VCPU limit exceeded")
 
         project_dir = Path(__file__).resolve().parent.parent
         base_image = project_dir / "noble-server-cloudimg-amd64.img"

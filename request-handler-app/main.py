@@ -5,12 +5,17 @@ import subprocess
 import libvirt
 import tempfile
 import yaml
+import json
 
 VMS_LIMIT = 5
 MEMORY_LIMIT = 4096
 VCPUS_LIMIT = 4
 TOTAL_MEMORY_LIMIT = 8192
 TOTAL_VCPUS_LIMIT = 8
+
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+IMAGES_FILE = PROJECT_DIR / "images.json"
+DEFAULT_IMAGE = PROJECT_DIR / "noble-server-cloudimg-amd64.img"
 
 app = FastAPI()
 
@@ -22,6 +27,55 @@ class VirtualMachine(BaseModel):
     hostname: str | None = None
     ssh_key: str | None = None
     user_data: str | None = None
+    image: str = "default"
+
+
+class Image(BaseModel):
+    name: str
+    path: str
+
+
+@app.get("/images")
+def get_images():
+    if not IMAGES_FILE.exists():
+        return {"default": str(DEFAULT_IMAGE)}
+    with open(IMAGES_FILE) as f:
+        images = json.load(f)
+
+    images["default"] = str(DEFAULT_IMAGE)
+    return images
+
+
+@app.post("/images")
+def register_image(image: Image):
+    if not image.name or not all(c.isalnum() or c in "-_" for c in image.name):
+        raise HTTPException(status_code=400, detail="Invalid image name")
+
+    if image.name == "default":
+        raise HTTPException(status_code=409, detail="Image already registered")
+
+    image_path = Path(image.path).expanduser().resolve()
+
+    if not image_path.is_file():
+        raise HTTPException(status_code=404, detail="Image file not found")
+
+    if not image_path.suffix.lower() in (".img", ".qcow2"):
+        raise HTTPException(status_code=400, detail="Unsupported image format")
+
+    images = {}
+    if IMAGES_FILE.exists():
+        with open(IMAGES_FILE) as f:
+            images = json.load(f)
+
+    if image.name in images:
+        raise HTTPException(status_code=409, detail="Image already registered")
+
+    images[image.name] = str(image_path)
+
+    with open(IMAGES_FILE, "w") as f:
+        json.dump(images, f, indent=4)
+
+    return {"name": image.name, "path": str(image_path)}
 
 
 @app.get("/vms")
@@ -98,14 +152,18 @@ def create_virtual_machine(vm: VirtualMachine):
         if total_vcpus + vm.vcpus > TOTAL_VCPUS_LIMIT:
             raise HTTPException(status_code=409, detail="Total VCPU limit exceeded")
 
-        project_dir = Path(__file__).resolve().parent.parent
-        base_image = project_dir / "noble-server-cloudimg-amd64.img"
+        images = get_images()
+        if vm.image not in images:
+            raise HTTPException(status_code=404, detail="Image not registered")
+
+        base_image = Path(images[vm.image])
+        if not base_image.is_file():
+            raise HTTPException(status_code=404, detail="Image file not found")
+
+        project_dir = PROJECT_DIR
         disk_dir = Path("/var/lib/libvirt/images/cloud-maker")
         disk = disk_dir / f"{vm.name}.qcow2"
         seed = disk_dir / f"{vm.name}-seed.iso"
-
-        if not base_image.is_file():
-            raise HTTPException(status_code=404, detail="Ubuntu image not found")
 
         if disk.exists() or seed.exists():
             raise HTTPException(

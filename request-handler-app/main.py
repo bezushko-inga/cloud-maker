@@ -123,11 +123,13 @@ def get_virtual_machine_stats(name: str):
             raise
 
         if not domain.isActive():
+            xml = ET.fromstring(domain.XMLDesc())
+
             return {
                 "name": name,
                 "state": "stopped",
                 "memory_mb": domain.maxMemory() // 1024,
-                "vcpus": domain.maxVcpus(),
+                "vcpus": int(xml.findtext("vcpu")),
                 "cpu_usage_percent": 0,
                 "disk": None,
                 "network": None,
@@ -253,7 +255,9 @@ def create_virtual_machine(vm: VirtualMachine):
 
         for domain in domains:
             total_memory += domain.maxMemory() // 1024
-            total_vcpus += domain.maxVcpus()
+
+            xml = ET.fromstring(domain.XMLDesc())
+            total_vcpus += int(xml.findtext("vcpu"))
 
         if total_memory + vm.memory > TOTAL_MEMORY_LIMIT:
             raise HTTPException(status_code=409, detail="Total memory limit exceeded")

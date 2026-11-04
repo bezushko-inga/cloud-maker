@@ -387,16 +387,15 @@ def stop_virtual_machine(name: str):
                 status_code=409, detail="Virtual machine is already stopped"
             )
 
-        if domain is not None:
-            domain.shutdown()
+        domain.shutdown()
 
-            for _ in range(60):
-                if not domain.isActive():
-                    break
-                time.sleep(1)
+        for _ in range(5):
+            if not domain.isActive():
+                break
+            time.sleep(1)
 
-            if domain.isActive():
-                domain.destroy()
+        if domain.isActive():
+            domain.destroy()
 
         return {"name": name, "state": "stopped"}
 

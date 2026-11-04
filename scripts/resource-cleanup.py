@@ -42,12 +42,12 @@ def resource_cleanup():
             if domain is not None:
                 if domain.isActive():
                     domain.shutdown()
-
-                    for _ in range(30):
+                    for _ in range(60):
                         if not domain.isActive():
                             break
-                        time.sleep(2)
-
+                        time.sleep(1)
+                    if domain.isActive():
+                        domain.destroy()
                 domain.undefine()
 
             disk.unlink(missing_ok=True)

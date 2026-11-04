@@ -27,5 +27,3 @@ python -m pip install \
     requests \
     pytest \
     pyyaml
-
-echo "source .venv/bin/activate"

@@ -271,6 +271,7 @@ def create_virtual_machine(vm: VirtualMachine):
 
         project_dir = PROJECT_DIR
         disk_dir = Path("/var/lib/libvirt/images/cloud-maker")
+        disk_dir.mkdir(parents=True, exist_ok=True)
         disk = disk_dir / f"{vm.name}.qcow2"
         seed = disk_dir / f"{vm.name}-seed.iso"
 
@@ -386,7 +387,17 @@ def stop_virtual_machine(name: str):
                 status_code=409, detail="Virtual machine is already stopped"
             )
 
-        domain.shutdown()
+        if domain is not None:
+            domain.shutdown()
+
+            for _ in range(60):
+                if not domain.isActive():
+                    break
+                time.sleep(1)
+
+            if domain.isActive():
+                domain.destroy()
+
         return {"name": name, "state": "stopped"}
 
     finally:

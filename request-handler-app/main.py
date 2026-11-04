@@ -296,14 +296,12 @@ def create_virtual_machine(vm: VirtualMachine):
             user = tmp / "user_data"
             iso = tmp / "seed.iso"
             hostname = vm.hostname or vm.name
-
+            
             meta.write_text(f"instance-id: {vm.name}\nlocal-hostname: {hostname}\n")
-
             if vm.user_data:
                 config = yaml.safe_load(vm.user_data.removeprefix("#cloud-config"))
             else:
-                default_data = (project_dir / "cloud-init/user-data").read_text()
-                config = yaml.safe_load(default_data.removeprefix("#cloud-config"))
+                config = {}
 
             if config is None:
                 config = {}

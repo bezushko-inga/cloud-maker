@@ -228,9 +228,11 @@ def test_vm_network_stats(api, created_virtual_machine):
 
     assert isinstance(network, dict)
 
-    for value in network.values():
-        assert isinstance(value, (int, float))
-        assert value >= 0
+    for stats in network.values():
+        assert isinstance(stats, dict)
+        for value in stats.values():
+            assert isinstance(value, (int, float))
+            assert value >= 0
 
 
 # ТЕСТ 10: проверка изменения времени CPU

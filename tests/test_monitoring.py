@@ -211,9 +211,11 @@ def test_vm_disk_stats(api, created_virtual_machine):
 
     assert isinstance(disk, dict)
 
-    for value in disk.values():
-        assert isinstance(value, (int, float))
-        assert value >= 0
+    for stats in disk.values():
+        assert isinstance(stats, dict)
+        for value in stats.values():
+            assert isinstance(value, (int, float))
+            assert value >= 0
 
 
 # ТЕСТ 9: проверка сетевой статистики

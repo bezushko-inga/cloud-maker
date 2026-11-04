@@ -53,10 +53,22 @@ if [ ! -f "$BASE_IMAGE" ]; then
     mv "${BASE_IMAGE}.tmp" "$BASE_IMAGE"
 fi
 
+cat > "$PROJECT_DIR/meta-data" <<EOF
+instance-id: $VM_NAME
+local-hostname: $VM_NAME
+EOF
+
+cat > "$PROJECT_DIR/user-data" <<EOF
+#cloud-config
+hostname: $VM_NAME
+EOF
+
 cloud-localds \
     "$PROJECT_DIR/seed.iso" \
-    "$PROJECT_DIR/cloud-init/user-data" \
-    "$PROJECT_DIR/cloud-init/meta-data"
+    "$PROJECT_DIR/user-data" \
+    "$PROJECT_DIR/meta-data"
+
+rm -f "$PROJECT_DIR/meta-data" "$PROJECT_DIR/user-data"
 
 sudo cp "$BASE_IMAGE" "$VM_DISK"
 sudo qemu-img resize "$VM_DISK" "$DISK_SIZE"

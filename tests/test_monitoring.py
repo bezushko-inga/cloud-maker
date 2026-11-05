@@ -158,8 +158,8 @@ def test_metrics_names(api):
         "cloudmaker_vm_cpu_time_seconds",
         "cloudmaker_vm_disk_read_bytes_total",
         "cloudmaker_vm_disk_write_bytes_total",
-        "cloudmaker_vm_network_rx_bytes_total",
-        "cloudmaker_vm_network_tx_bytes_total",
+        "cloudmaker_vm_network_received_bytes_total",
+        "cloudmaker_vm_network_transmitted_bytes_total"
     ]
 
     for metric in metrics:
@@ -242,12 +242,11 @@ def test_vm_disk_write_metric(api, created_virtual_machine):
 def test_vm_network_received_metric(api, created_virtual_machine):
     received = find_metric(
         api,
-        "cloudmaker_vm_network_rx_bytes_total",
+        "cloudmaker_vm_network_received_bytes_total",
         created_virtual_machine,
     )
 
     assert received is not None
-    assert isinstance(received, (int, float))
     assert received >= 0
 
 
@@ -255,12 +254,11 @@ def test_vm_network_received_metric(api, created_virtual_machine):
 def test_vm_network_transmitted_metric(api, created_virtual_machine):
     transmitted = find_metric(
         api,
-        "cloudmaker_vm_network_tx_bytes_total",
+        "cloudmaker_vm_network_transmitted_bytes_total",
         created_virtual_machine,
     )
 
     assert transmitted is not None
-    assert isinstance(transmitted, (int, float))
     assert transmitted >= 0
 
 

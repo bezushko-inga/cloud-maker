@@ -159,10 +159,9 @@ python scripts/resource-cleanup.py
 uvicorn main:app --app-dir request-handler-app --host 127.0.0.1 --port 8000
 ```
 
-2. Активация виртуального окружения и запуск скрипта автоматического тестирования во втором терминале:
+2. Запуск скрипта автоматического тестирования во втором терминале:
 
 ```bash
-source .venv/bin/activate
 bash scripts/run-all-tests.sh
 ```
 

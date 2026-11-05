@@ -2,7 +2,7 @@
 
 Cloud Maker - приложение HTTP API, разработанное в рамках курса "Современные Облачные Технологии", для создания, удаления и управления виртуальными машинами на Linux-хосте с QEMU/KVM.
 
-Условие задания сформулированы в файле `CloudMaker.pdf`. В решении реализованы следующие дополнительные фичи:
+Условие задания сформулировано в файле `CloudMaker.pdf`. В решении реализованы следующие дополнительные фичи:
 
 ### [ 1 ] Приложение, обрабатывающее запросы
 Реализация приложения HTTP API, с помощью которого можно управлять виртуальными машинами, а именно создавать, останавливать и удалять их.
@@ -31,16 +31,27 @@ Cloud Maker - приложение HTTP API, разработанное в ра�
 
 ### [ 8 ] Мониторинг ресурсов 
 
-В файл `request-handler-app/main.py` добавлены сервисы мониторинга, который собирает информацию об использовании ресурсов виртуальными машинами. Функция `get_virtual_machine_stats(name: str)` возвращает статистику процессора, мониторинг памяти, дисков и сети. 
+Реализован мониторинг использования ресурсов виртуальных машин с помощью libvirt, Prometheus и Grafana.
+
+В файле `request-handler-app/main.py` реализована функция `get_metrics()`: предоставление метрик всех работающих виртуальных машин в формате Prometheus.
+
+Собираются следующие метрики:
+
+* время использования CPU;
+* объем выделенной оперативной памяти;
+* количество прочитанных и записанных байтов на диске;
+* количество полученных и отправленных байтов по сети.
+
+Конфигурационные файлы Prometheus и Grafana, а также готовый `dashboard` находятся в директории `monitoring-files/`.
 
 ### [ 9 ] Ограничение ресурсов (квоты)
 
 Добавлено ограничение ресурсов, которые могут выделяться виртуальным машинам. В файле `request-handler-app/main.py` проверяются следующие ограничения:
 
-- выделенная память одной виртуальной машине от 512 до 4096;
+- выделенная память одной виртуальной машине от 512 Мб до 4096 Мб;
 - выделенное количество процессоров от 1 до 4;
 - количество виртуальных машин до 5;
-- суммарное количество выданной памяти до 8192;
+- суммарное количество выданной памяти до 8192 Мб;
 - суммарное количество процессоров до 8.
   
 ### [ 11 ] Скрипт для проверки
@@ -57,6 +68,10 @@ Cloud Maker - приложение HTTP API, разработанное в ра�
 cloud-maker/
 ├── request-handler-app/
 │   └── main.py                 # FastAPI-приложение
+├── monitoring-files/
+│   ├── prometheus-config.yml   # Конфигурация Prometheus
+│   ├── grafana-datasource.yml  # Подключение Grafana к Prometheus
+│   └── grafana-dashboard.json  # Dashboard с шестью графиками
 ├── tests/
 │   ├── test_vms.py             # Тест управления вирт. машинами 
 │   ├── test_images.py          # Тест регистрации образов
@@ -138,7 +153,7 @@ python scripts/resource-cleanup.py
 
 ## Тестирование Cloud Maker
 
-1. Запуск приложения:
+1. Запуск приложения (вручную можно посмотреть по адресу `http://127.0.0.1:8000/docs`):
 
 ```bash
 uvicorn main:app --app-dir request-handler-app --host 127.0.0.1 --port 8000
@@ -156,3 +171,45 @@ bash scripts/run-all-tests.sh
 ```bash
 python scripts/resource-cleanup.py
 ```
+
+## Запуск мониторинга метрик
+
+Для мониторинга ресурсов виртуальных машин используются Prometheus и Grafana. FastAPI, Prometheus и Grafana при этом запускаются одновременно на одном Linux-хосте.
+
+1. Настройка Prometheus. Копирование конфигурационного файла:
+
+```bash
+sudo cp monitoring-files/prometheus-config.yml /etc/prometheus/prometheus.yml
+```
+
+2. Настройка Prometheus. Проверка конфигурации:
+
+```bash
+promtool check config /etc/prometheus/prometheus.yml
+```
+
+3. Настройка Prometheus. Запуск Prometheus:
+
+```bash
+sudo systemctl enable --now prometheus
+sudo systemctl restart prometheus
+```
+
+Веб-интерфейс Prometheus доступен по адресу `http://127.0.0.1:9090`. В разделе Status -> Targets можно проверить, что приложение cloud-maker имеет статус UP.
+
+4. Настройка Grafana. Копирование конфигурации:
+
+```bash
+sudo cp monitoring-files/grafana-datasource.yml /etc/grafana/provisioning/datasources/cloud-maker.yml
+```
+
+5. Настройка Grafana. Запуск Grafana:
+
+```bash
+sudo systemctl enable --now grafana-server
+sudo systemctl restart grafana-server
+```
+
+6. Импорт дашборда:
+
+Открываем Grafana по адресу `http://127.0.0.1:3000`. Переходим в Dashboards -> New -> Import и загружаем файл `monitoring-files/grafana-dashboard.json`. После создания виртуальной машины её метрики должны появиться в Prometheus и на графиках Grafana.

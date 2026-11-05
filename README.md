@@ -218,5 +218,5 @@ sudo systemctl restart grafana-server
 
 Открываем Grafana (заходим в аккаунт, по умолчанию логин: admin, пароль: admin) по адресу `http://127.0.0.1:3000`. Переходим в Dashboards -> New -> Import и загружаем файл `monitoring-files/grafana-dashboard.json`. После создания виртуальной машины её метрики должны появиться в Prometheus и на графиках Grafana.
 
-#### Пример итоговых графиков для vm-example
+#### Пример итоговых графиков для `example-vm`
 ![](assets/graphics.png)

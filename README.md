@@ -197,6 +197,8 @@ sudo systemctl restart prometheus
 
 Веб-интерфейс Prometheus доступен по адресу `http://127.0.0.1:9090`. В разделе Status -> Targets можно проверить, что приложение cloud-maker имеет статус UP.
 
+![](assets/targets.png)
+
 4. Настройка Grafana. Копирование конфигурации:
 
 ```bash
@@ -212,4 +214,9 @@ sudo systemctl restart grafana-server
 
 6. Импорт дашборда:
 
-Открываем Grafana по адресу `http://127.0.0.1:3000`. Переходим в Dashboards -> New -> Import и загружаем файл `monitoring-files/grafana-dashboard.json`. После создания виртуальной машины её метрики должны появиться в Prometheus и на графиках Grafana.
+![](assets/dashboards.png)
+
+Открываем Grafana (заходим в аккаунт, по умолчанию логин: admin, пароль: admin) по адресу `http://127.0.0.1:3000`. Переходим в Dashboards -> New -> Import и загружаем файл `monitoring-files/grafana-dashboard.json`. После создания виртуальной машины её метрики должны появиться в Prometheus и на графиках Grafana.
+
+#### Пример итоговых графиков для vm-example
+![](assets/graphics.png)

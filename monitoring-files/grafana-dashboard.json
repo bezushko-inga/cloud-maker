@@ -220,7 +220,7 @@
       },
       "targets": [
         {
-          "expr": "rate(cloudmaker_vm_network_rx_bytes_total{vm_name=~\"$vm\"}[1m])",
+          "expr": "rate(cloudmaker_vm_network_received_bytes_total{vm_name=~\"$vm\"}[1m])",
           "legendFormat": "{{vm_name}}",
           "refId": "A"
         }
@@ -261,7 +261,7 @@
       },
       "targets": [
         {
-          "expr": "rate(cloudmaker_vm_network_tx_bytes_total{vm_name=~\"$vm\"}[1m])",
+          "expr": "rate(cloudmaker_vm_network_transmitted_bytes_total{vm_name=~\"$vm\"}[1m])",
           "legendFormat": "{{vm_name}}",
           "refId": "A"
         }

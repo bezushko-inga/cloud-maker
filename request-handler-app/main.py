@@ -1,17 +1,27 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import Response
 from pathlib import Path
+from prometheus_client import (
+    CollectorRegistry,
+    Gauge,
+    generate_latest,
+    CONTENT_TYPE_LATEST,
+)
 from pydantic import BaseModel
+
+import json
 import libvirt
 import subprocess
-import time
 import tempfile
-import yaml
-import json
+import time
 import xml.etree.ElementTree as ET
+import yaml
 
 VMS_LIMIT = 5
-MEMORY_LIMIT = 4096
-VCPUS_LIMIT = 4
+MIN_MEMORY = 512
+MAX_MEMORY = 4096
+MIN_VCPUS = 1
+MAX_VCPUS = 4
 TOTAL_MEMORY_LIMIT = 8192
 TOTAL_VCPUS_LIMIT = 8
 
@@ -104,115 +114,6 @@ def get_virtual_machines():
         connection.close()
 
 
-@app.get("/vms/{name}/stats")
-def get_virtual_machine_stats(name: str):
-    try:
-        connection = libvirt.open("qemu:///system")
-    except libvirt.libvirtError:
-        raise HTTPException(status_code=503, detail="Failed to connect to libvirt")
-
-    if connection is None:
-        raise HTTPException(status_code=503, detail="Failed to connect to libvirt")
-
-    try:
-        try:
-            domain = connection.lookupByName(name)
-        except libvirt.libvirtError as e:
-            if e.get_error_code() == libvirt.VIR_ERR_NO_DOMAIN:
-                raise HTTPException(status_code=404, detail="Virtual machine not found")
-            raise
-
-        if not domain.isActive():
-            xml = ET.fromstring(domain.XMLDesc())
-
-            return {
-                "name": name,
-                "state": "stopped",
-                "memory_mb": domain.maxMemory() // 1024,
-                "vcpus": int(xml.findtext("vcpu")),
-                "cpu_usage_percent": 0,
-                "disk": None,
-                "network": None,
-            }
-
-        _, memory, memory_used, vcpus, cpu_time = domain.info()
-
-        start_cpu_time = cpu_time
-        start_time = time.monotonic()
-        time.sleep(1)
-        end_cpu_time = domain.info()[4]
-        elapsed = time.monotonic() - start_time
-
-        cpu_usage = (
-            (end_cpu_time - start_cpu_time) / (elapsed * 1_000_000_000 * vcpus) * 100
-        )
-        cpu_usage = max(0, min(cpu_usage, 100))
-
-        xml = ET.fromstring(domain.XMLDesc())
-
-        disks = {}
-
-        for disk in xml.findall("./devices/disk"):
-
-            target = disk.find("target")
-            if target is None:
-                continue
-
-            device = target.get("dev")
-            if not device:
-                continue
-
-            try:
-                stats = domain.blockStats(device)
-                disks[device] = {
-                    "read_requests": stats[0],
-                    "read_bytes": stats[1],
-                    "write_requests": stats[2],
-                    "write_bytes": stats[3],
-                }
-
-            except libvirt.libvirtError:
-                continue
-
-        networks = {}
-
-        for interface in xml.findall("./devices/interface"):
-
-            target = interface.find("target")
-            if target is None:
-                continue
-
-            device = target.get("dev")
-            if not device:
-                continue
-
-            try:
-                stats = domain.interfaceStats(device)
-                networks[device] = {
-                    "received_bytes": stats[0],
-                    "received_packets": stats[1],
-                    "transmitted_bytes": stats[4],
-                    "transmitted_packets": stats[5],
-                }
-            except libvirt.libvirtError:
-                continue
-
-        return {
-            "name": name,
-            "state": "running",
-            "memory_mb": memory // 1024,
-            "memory_used_mb": memory_used // 1024,
-            "vcpus": vcpus,
-            "cpu_time_ns": end_cpu_time,
-            "cpu_usage_percent": round(cpu_usage, 2),
-            "disk": disks,
-            "network": networks,
-        }
-
-    finally:
-        connection.close()
-
-
 @app.post("/vms")
 def create_virtual_machine(vm: VirtualMachine):
     try:
@@ -227,10 +128,10 @@ def create_virtual_machine(vm: VirtualMachine):
         if not vm.name or not all(c.isalnum() or c in "-_" for c in vm.name):
             raise HTTPException(status_code=400, detail="Invalid virtual machine name")
 
-        if not 512 <= vm.memory <= MEMORY_LIMIT:
+        if not MIN_MEMORY <= vm.memory <= MAX_MEMORY:
             raise HTTPException(status_code=400, detail="Memory limit exceeded")
 
-        if not 1 <= vm.vcpus <= VCPUS_LIMIT:
+        if not MIN_VCPUS <= vm.vcpus <= MAX_VCPUS:
             raise HTTPException(status_code=400, detail="VCPU limit exceeded")
 
         try:
@@ -446,3 +347,126 @@ def delete_virtual_machine(name: str):
 
     finally:
         connection.close()
+
+
+@app.get("/metrics")
+def get_metrics():
+    registry = CollectorRegistry()
+
+    vm_memory = Gauge(
+        "cloudmaker_vm_memory_bytes",
+        "Allocated memory of virtual machines in bytes",
+        ["vm_name"],
+        registry=registry,
+    )
+
+    vm_cpu = Gauge(
+        "cloudmaker_vm_cpu_time_seconds",
+        "Total CPU time used by virtual machines in seconds",
+        ["vm_name"],
+        registry=registry,
+    )
+
+    vm_disk_read = Gauge(
+        "cloudmaker_vm_disk_read_bytes_total",
+        "Total bytes read from virtual machine disks",
+        ["vm_name"],
+        registry=registry,
+    )
+
+    vm_disk_write = Gauge(
+        "cloudmaker_vm_disk_write_bytes_total",
+        "Total bytes written to virtual machine disks",
+        ["vm_name"],
+        registry=registry,
+    )
+
+    vm_network_received = Gauge(
+        "cloudmaker_vm_network_received_bytes_total",
+        "Total network bytes received by virtual machines",
+        ["vm_name"],
+        registry=registry,
+    )
+
+    vm_network_transmitted = Gauge(
+        "cloudmaker_vm_network_transmitted_bytes_total",
+        "Total network bytes transmitted by virtual machines",
+        ["vm_name"],
+        registry=registry,
+    )
+
+    try:
+        connection = libvirt.open("qemu:///system")
+    except libvirt.libvirtError:
+        raise HTTPException(status_code=503, detail="Failed to connect to libvirt")
+    if connection is None:
+        raise HTTPException(status_code=503, detail="Failed to connect to libvirt")
+
+    try:
+        for domain in connection.listAllDomains():
+            if not domain.isActive():
+                continue
+
+            name = domain.name()
+
+            vm_memory.labels(vm_name=name).set(domain.maxMemory() * 1024)
+            cpu_time_ns = domain.info()[4]
+            vm_cpu.labels(vm_name=name).set(cpu_time_ns / 1000000000)
+            xml = ET.fromstring(domain.XMLDesc())
+
+            total_read = 0
+            total_write = 0
+
+            for disk in xml.findall("./devices/disk"):
+                target = disk.find("target")
+
+                if target is None:
+                    continue
+
+                device = target.get("dev")
+
+                if not device:
+                    continue
+
+                try:
+                    stats = domain.blockStats(device)
+
+                    total_read += stats[1]
+                    total_write += stats[3]
+
+                except libvirt.libvirtError:
+                    continue
+
+            vm_disk_read.labels(vm_name=name).set(total_read)
+            vm_disk_write.labels(vm_name=name).set(total_write)
+
+            total_received = 0
+            total_transmitted = 0
+
+            for interface in xml.findall("./devices/interface"):
+                target = interface.find("target")
+
+                if target is None:
+                    continue
+
+                device = target.get("dev")
+
+                if not device:
+                    continue
+
+                try:
+                    stats = domain.interfaceStats(device)
+
+                    total_received += stats[0]
+                    total_transmitted += stats[4]
+
+                except libvirt.libvirtError:
+                    continue
+
+            vm_network_received.labels(vm_name=name).set(total_received)
+            vm_network_transmitted.labels(vm_name=name).set(total_transmitted)
+
+    finally:
+        connection.close()
+
+    return Response(content=generate_latest(registry), media_type=CONTENT_TYPE_LATEST)

@@ -3,6 +3,8 @@ import uuid
 import pytest
 import requests
 
+from prometheus_client.parser import text_string_to_metric_families
+
 BASE_URL = "http://127.0.0.1:8000"
 
 
@@ -48,9 +50,23 @@ def create_virtual_machine(api, name, memory=1024, vcpus=1):
     )
 
 
-# получение статистики виртуальной машины
-def get_virtual_machine_stats(api, name):
-    return api.get(f"{BASE_URL}/vms/{name}/stats", timeout=20)
+# получение метрик Prometheus
+def get_metrics(api):
+    return api.get(f"{BASE_URL}/metrics", timeout=20)
+
+
+# поиск метрики виртуальной машины
+def find_metric(api, metric_name, vm_name):
+    response = get_metrics(api)
+
+    assert response.status_code == 200, response.text
+
+    for family in text_string_to_metric_families(response.text):
+        for sample in family.samples:
+            if sample.name == metric_name and sample.labels.get("vm_name") == vm_name:
+                return sample.value
+
+    return None
 
 
 # ожидание остановки виртуальной машины до таймаута
@@ -96,248 +112,193 @@ def delete_virtual_machine(api, name):
     assert find_virtual_machine(api, name) is None
 
 
-# фикстура 3: создание виртуальной машины перед тестом и удаление после
-@pytest.fixture
-def created_virtual_machine(api, vm_name):
+# фикстура 3: создание виртуальной машины перед тестами и удаление после
+@pytest.fixture(scope="module")
+def created_virtual_machine():
+    session = requests.Session()
+    name = f"pytest-{uuid.uuid4().hex}"
+
     try:
-        response = create_virtual_machine(api, vm_name)
+        response = create_virtual_machine(session, name)
 
         assert response.status_code == 200, response.text
 
-        yield vm_name
+        yield name
 
     finally:
-        delete_virtual_machine(api, vm_name)
+        try:
+            delete_virtual_machine(session, name)
+        finally:
+            session.close()
 
 
-# фикстура 4: создание и остановка виртуальной машины перед тестом
-@pytest.fixture
-def stopped_virtual_machine(api, created_virtual_machine):
-    stop_virtual_machine(api, created_virtual_machine)
-
-    return created_virtual_machine
-
-
-# ТЕСТ 1: получение статистики работающей виртуальной машины
-def test_get_running_vm_stats(api, created_virtual_machine):
-    response = get_virtual_machine_stats(api, created_virtual_machine)
-
-    assert response.status_code == 200, response.text
-    assert isinstance(response.json(), dict)
-
-    stats = response.json()
-
-    assert "name" in stats
-    assert "state" in stats
-    assert "memory_mb" in stats
-    assert "vcpus" in stats
-    assert "cpu_time_ns" in stats
-    assert "cpu_usage_percent" in stats
-    assert "disk" in stats
-    assert "network" in stats
-
-
-# ТЕСТ 2: проверка имени виртуальной машины в статистике
-def test_vm_stats_name(api, created_virtual_machine):
-    response = get_virtual_machine_stats(api, created_virtual_machine)
-
-    assert response.status_code == 200, response.text
-    assert response.json()["name"] == created_virtual_machine
-
-
-# ТЕСТ 3: проверка состояния работающей виртуальной машины
-def test_running_vm_state(api, created_virtual_machine):
-    response = get_virtual_machine_stats(api, created_virtual_machine)
-
-    assert response.status_code == 200, response.text
-    assert response.json()["state"] == "running"
-
-
-# ТЕСТ 4: проверка выделенной памяти
-def test_vm_memory(api, created_virtual_machine):
-    response = get_virtual_machine_stats(api, created_virtual_machine)
+# ТЕСТ 1: доступность эндпоинта Prometheus
+def test_metrics_endpoint(api):
+    response = get_metrics(api)
 
     assert response.status_code == 200, response.text
 
-    stats = response.json()
 
-    assert isinstance(stats["memory_mb"], (int, float))
-    assert stats["memory_mb"] == 1024
+# ТЕСТ 2: формат ответа Prometheus
+def test_metrics_content_type(api):
+    response = get_metrics(api)
+
+    assert response.status_code == 200, response.text
+    assert "text/plain" in response.headers["Content-Type"]
 
 
-# ТЕСТ 5: проверка количества vCPU
-def test_vm_vcpus(api, created_virtual_machine):
-    response = get_virtual_machine_stats(api, created_virtual_machine)
+# ТЕСТ 3: наличие всех шести метрик
+def test_metrics_names(api):
+    response = get_metrics(api)
 
     assert response.status_code == 200, response.text
 
-    stats = response.json()
+    metrics = [
+        "cloudmaker_vm_memory_bytes",
+        "cloudmaker_vm_cpu_time_seconds",
+        "cloudmaker_vm_disk_read_bytes_total",
+        "cloudmaker_vm_disk_write_bytes_total",
+        "cloudmaker_vm_network_rx_bytes_total",
+        "cloudmaker_vm_network_tx_bytes_total",
+    ]
 
-    assert isinstance(stats["vcpus"], int)
-    assert stats["vcpus"] == 1
-
-
-# ТЕСТ 6: проверка времени работы CPU
-def test_vm_cpu_time(api, created_virtual_machine):
-    response = get_virtual_machine_stats(api, created_virtual_machine)
-
-    assert response.status_code == 200, response.text
-
-    stats = response.json()
-
-    assert isinstance(stats["cpu_time_ns"], int)
-    assert stats["cpu_time_ns"] >= 0
+    for metric in metrics:
+        assert metric in response.text
 
 
-# ТЕСТ 7: проверка загрузки CPU
-def test_vm_cpu_usage(api, created_virtual_machine):
-    response = get_virtual_machine_stats(api, created_virtual_machine)
+# ТЕСТ 4: корректность формата метрик
+def test_metrics_format(api):
+    response = get_metrics(api)
 
     assert response.status_code == 200, response.text
 
-    stats = response.json()
+    families = list(text_string_to_metric_families(response.text))
 
-    assert isinstance(stats["cpu_usage_percent"], (int, float))
-    assert 0 <= stats["cpu_usage_percent"] <= 100
-
-
-# ТЕСТ 8: проверка дисковой статистики
-def test_vm_disk_stats(api, created_virtual_machine):
-    response = get_virtual_machine_stats(api, created_virtual_machine)
-
-    assert response.status_code == 200, response.text
-
-    disk = response.json()["disk"]
-
-    assert isinstance(disk, dict)
-
-    for stats in disk.values():
-        assert isinstance(stats, dict)
-        for value in stats.values():
-            assert isinstance(value, (int, float))
-            assert value >= 0
+    assert len(families) > 0
 
 
-# ТЕСТ 9: проверка сетевой статистики
-def test_vm_network_stats(api, created_virtual_machine):
-    response = get_virtual_machine_stats(api, created_virtual_machine)
+# ТЕСТ 5: метрики работающей виртуальной машины
+def test_running_vm_metrics(api, created_virtual_machine):
+    response = get_metrics(api)
 
     assert response.status_code == 200, response.text
 
-    network = response.json()["network"]
-
-    assert isinstance(network, dict)
-
-    for stats in network.values():
-        assert isinstance(stats, dict)
-        for value in stats.values():
-            assert isinstance(value, (int, float))
-            assert value >= 0
+    assert f'vm_name="{created_virtual_machine}"' in response.text
 
 
-# ТЕСТ 10: проверка изменения времени CPU
+# ТЕСТ 6: выделенная память виртуальной машины
+def test_vm_memory_metric(api, created_virtual_machine):
+    memory = find_metric(
+        api,
+        "cloudmaker_vm_memory_bytes",
+        created_virtual_machine,
+    )
+
+    assert memory is not None
+    assert isinstance(memory, (int, float))
+    assert memory == 1024 * 1024 * 1024
+
+
+# ТЕСТ 7: время использования CPU
+def test_vm_cpu_metric(api, created_virtual_machine):
+    cpu = find_metric(
+        api,
+        "cloudmaker_vm_cpu_time_seconds",
+        created_virtual_machine,
+    )
+
+    assert cpu is not None
+    assert isinstance(cpu, (int, float))
+    assert cpu >= 0
+
+
+# ТЕСТ 8: количество прочитанных байтов
+def test_vm_disk_read_metric(api, created_virtual_machine):
+    disk_read = find_metric(
+        api,
+        "cloudmaker_vm_disk_read_bytes_total",
+        created_virtual_machine,
+    )
+
+    assert disk_read is not None
+    assert isinstance(disk_read, (int, float))
+    assert disk_read >= 0
+
+
+# ТЕСТ 9: количество записанных байтов
+def test_vm_disk_write_metric(api, created_virtual_machine):
+    disk_write = find_metric(
+        api,
+        "cloudmaker_vm_disk_write_bytes_total",
+        created_virtual_machine,
+    )
+
+    assert disk_write is not None
+    assert isinstance(disk_write, (int, float))
+    assert disk_write >= 0
+
+
+# ТЕСТ 10: количество полученных байтов
+def test_vm_network_received_metric(api, created_virtual_machine):
+    received = find_metric(
+        api,
+        "cloudmaker_vm_network_rx_bytes_total",
+        created_virtual_machine,
+    )
+
+    assert received is not None
+    assert isinstance(received, (int, float))
+    assert received >= 0
+
+
+# ТЕСТ 11: количество отправленных байтов
+def test_vm_network_transmitted_metric(api, created_virtual_machine):
+    transmitted = find_metric(
+        api,
+        "cloudmaker_vm_network_tx_bytes_total",
+        created_virtual_machine,
+    )
+
+    assert transmitted is not None
+    assert isinstance(transmitted, (int, float))
+    assert transmitted >= 0
+
+
+# ТЕСТ 12: увеличение времени использования CPU
 def test_vm_cpu_time_increases(api, created_virtual_machine):
-    response1 = get_virtual_machine_stats(api, created_virtual_machine)
+    cpu_time1 = find_metric(
+        api,
+        "cloudmaker_vm_cpu_time_seconds",
+        created_virtual_machine,
+    )
 
-    assert response1.status_code == 200, response1.text
-
-    cpu_time1 = response1.json()["cpu_time_ns"]
+    assert cpu_time1 is not None
 
     time.sleep(2)
 
-    response2 = get_virtual_machine_stats(api, created_virtual_machine)
+    cpu_time2 = find_metric(
+        api,
+        "cloudmaker_vm_cpu_time_seconds",
+        created_virtual_machine,
+    )
 
-    assert response2.status_code == 200, response2.text
-
-    cpu_time2 = response2.json()["cpu_time_ns"]
-
+    assert cpu_time2 is not None
     assert cpu_time2 >= cpu_time1
 
 
-# ТЕСТ 11: получение статистики остановленной виртуальной машины
-def test_get_stopped_vm_stats(api, stopped_virtual_machine):
-    response = get_virtual_machine_stats(api, stopped_virtual_machine)
-
-    assert response.status_code == 200, response.text
-    assert isinstance(response.json(), dict)
-
-    stats = response.json()
-
-    assert stats["name"] == stopped_virtual_machine
-    assert stats["state"] == "stopped"
-
-
-# ТЕСТ 12: загрузка CPU остановленной виртуальной машины
-def test_stopped_vm_cpu_usage(api, stopped_virtual_machine):
-    response = get_virtual_machine_stats(api, stopped_virtual_machine)
-
-    assert response.status_code == 200, response.text
-    assert response.json()["cpu_usage_percent"] == 0
-
-
-# ТЕСТ 13: дисковая статистика остановленной виртуальной машины
-def test_stopped_vm_disk_stats(api, stopped_virtual_machine):
-    response = get_virtual_machine_stats(api, stopped_virtual_machine)
-
-    assert response.status_code == 200, response.text
-    assert response.json()["disk"] is None
-
-
-# ТЕСТ 14: сетевая статистика остановленной виртуальной машины
-def test_stopped_vm_network_stats(api, stopped_virtual_machine):
-    response = get_virtual_machine_stats(api, stopped_virtual_machine)
-
-    assert response.status_code == 200, response.text
-    assert response.json()["network"] is None
-
-
-# ТЕСТ 15: ресурсы остановленной виртуальной машины
-def test_stopped_vm_resources(api, stopped_virtual_machine):
-    response = get_virtual_machine_stats(api, stopped_virtual_machine)
-
-    assert response.status_code == 200, response.text
-
-    stats = response.json()
-
-    assert stats["memory_mb"] == 1024
-    assert stats["vcpus"] == 1
-
-
-# ТЕСТ 16: мониторинг несуществующей виртуальной машины
-def test_nonexistent_vm_stats(api, vm_name):
-    response = get_virtual_machine_stats(api, vm_name)
-
-    assert response.status_code == 404
-
-
-# ТЕСТ 17: мониторинг удалённой виртуальной машины
-def test_deleted_vm_stats(api, created_virtual_machine):
+# ТЕСТ 13: остановленная виртуальная машина не экспортируется
+def test_stopped_vm_metrics(api, created_virtual_machine):
     stop_virtual_machine(api, created_virtual_machine)
 
-    response = api.delete(f"{BASE_URL}/vms/{created_virtual_machine}", timeout=10)
+    response = get_metrics(api)
 
     assert response.status_code == 200, response.text
-
-    response = get_virtual_machine_stats(api, created_virtual_machine)
-
-    assert response.status_code == 404
+    assert f'vm_name="{created_virtual_machine}"' not in response.text
 
 
-# ТЕСТ 18: мониторинг виртуальной машины с заданными ресурсами
-def test_custom_vm_resources_stats(api, vm_name):
-    try:
-        response = create_virtual_machine(api, vm_name, memory=2048, vcpus=2)
+# ТЕСТ 14: несуществующая виртуальная машина не экспортируется
+def test_nonexistent_vm_metrics(api, vm_name):
+    response = get_metrics(api)
 
-        assert response.status_code == 200, response.text
-
-        response = get_virtual_machine_stats(api, vm_name)
-
-        assert response.status_code == 200, response.text
-
-        stats = response.json()
-
-        assert stats["memory_mb"] == 2048
-        assert stats["vcpus"] == 2
-
-    finally:
-        delete_virtual_machine(api, vm_name)
+    assert response.status_code == 200, response.text
+    assert f'vm_name="{vm_name}"' not in response.text

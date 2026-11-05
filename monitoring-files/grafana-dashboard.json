@@ -1,0 +1,289 @@
+{
+  "uid": "cloud-maker-monitoring",
+  "title": "Cloud Maker Monitoring",
+  "description": "Virtual machine resource monitoring using Prometheus and Grafana.",
+  "tags": ["cloud-maker", "libvirt", "virtual-machines"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-10m",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "vm",
+        "label": "Virtual Machine",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "cloudmaker-prometheus"
+        },
+        "query": {
+          "query": "label_values(cloudmaker_vm_memory_bytes, vm_name)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "CPU Usage",
+      "description": "CPU utilization as a percentage of one logical CPU.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cloudmaker-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(cloudmaker_vm_cpu_time_seconds{vm_name=~\"$vm\"}[1m]) * 100",
+          "legendFormat": "{{vm_name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Allocated Memory",
+      "description": "Memory allocated to each running virtual machine.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cloudmaker-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "cloudmaker_vm_memory_bytes{vm_name=~\"$vm\"}",
+          "legendFormat": "{{vm_name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Disk Read",
+      "description": "Disk read throughput in bytes per second.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cloudmaker-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(cloudmaker_vm_disk_read_bytes_total{vm_name=~\"$vm\"}[1m])",
+          "legendFormat": "{{vm_name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Disk Write",
+      "description": "Disk write throughput in bytes per second.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cloudmaker-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(cloudmaker_vm_disk_write_bytes_total{vm_name=~\"$vm\"}[1m])",
+          "legendFormat": "{{vm_name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Network Received",
+      "description": "Incoming network traffic in bytes per second.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cloudmaker-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(cloudmaker_vm_network_rx_bytes_total{vm_name=~\"$vm\"}[1m])",
+          "legendFormat": "{{vm_name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Network Transmitted",
+      "description": "Outgoing network traffic in bytes per second.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cloudmaker-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(cloudmaker_vm_network_tx_bytes_total{vm_name=~\"$vm\"}[1m])",
+          "legendFormat": "{{vm_name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    }
+  ]
+}
